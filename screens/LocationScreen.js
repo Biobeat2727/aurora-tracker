@@ -1,46 +1,51 @@
+// LocationScreen.js
 import React, { useState, useEffect } from 'react';
 import { View, Text, TextInput, Button, StyleSheet, Dimensions } from 'react-native';
-import Slider from '@react-native-community/slider';
-import { Graph, Line, Points } from 'react-native-graph';
-
+import { BarChart } from 'react-native-gifted-charts';
+import * as Location from 'expo-location'
 
 const screenWidth = Dimensions.get('window').width;
+
 const exampleHours = [
-    '6PM', '7PM', '8PM', '9PM',
-    '10PM', '11PM', '12AM', '1AM',
-    '2AM', '3AM', '4AM', '5AM'
-  ];
-  
-  const exampleChances = [0, 5, 10, 25, 40, 60, 70, 50, 35, 20, 10, 5];
-  
+  '6PM', '7PM', '8PM', '9PM',
+  '10PM', '11PM', '12AM', '1AM',
+  '2AM', '3AM', '4AM', '5AM'
+];
+
+const exampleChances = [0, 5, 10, 25, 40, 60, 70, 50, 35, 20, 10, 5];
+
+const generateHourlyForecast = (baseChance) => {
+  // Simulates a bell curve of visibility over time centered on midnight
+  const modifiers = [0.1, 0.25, 0.5, 0.75, 1, 0.9, 0.95, 0.85, 0.6, 0.4, 0.2, 0.1];
+  return modifiers.map(mod => Math.round(baseChance * mod));
+};
+
 
 const getAuroraChance = (lat, kp) => {
-    const thresholds = {
-        3: 65,
-        4: 60,
-        5: 55,
-        6: 50,
-        7: 45,
-        8: 40,
-        9: 35,
-    };
+  const thresholds = {
+    3: 65,
+    4: 60,
+    5: 55,
+    6: 50,
+    7: 45,
+    8: 40,
+    9: 35,
+  };
 
-    const visibleLat = thresholds[kp] || 80;
-    const diff = visibleLat - lat;
+  const visibleLat = thresholds[kp] || 80;
+  const diff = visibleLat - lat;
 
-    if (diff >= 10) return 0;
-    if (diff <= 0) return 100;
+  if (diff >= 10) return 0;
+  if (diff <= 0) return 100;
 
-    return Math.round((1 - diff / 10) * 100);
+  return Math.round((1 - diff / 10) * 100);
 };
 
 export default function LocationScreen() {
-    
-  const [zipCode, setZipCode] = useState('');
   const [location, setLocation] = useState(null);
   const [auroraChance, setauroraChance] = useState(null);
   const [kpIndex, setKpIndex] = useState(null);
-  const [selectedIndex, setSelectedIndex] = useState(0); // updates only on release
+  
 
   useEffect(() => {
     fetch('https://services.swpc.noaa.gov/json/planetary_k_index_1m.json')
@@ -53,63 +58,74 @@ export default function LocationScreen() {
         console.error('Error fetching K-index:', error);
       });
   }, []);
+
+  useEffect(() => {
+    (async () => {
+      let { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') {
+        alert('Permission to access location was denied.');
+        return;
+      }
+  
+      let { coords } = await Location.getCurrentPositionAsync({});
+      setLocation({ lat: coords.latitude, lon: coords.longitude });
+  
+      if (kpIndex !== null) {
+        const chance = getAuroraChance(coords.latitude, kpIndex);
+        setauroraChance(chance);
+      }
+    })();
+  }, [kpIndex]);
+  
   
 
-  const fetchLocationFromZip = () => {
-    if (!zipCode || zipCode.length !== 5) {
-      alert('Please enter a valid 5-digit ZIP code.');
-      return;
-    }
+  const forecastChances = auroraChance !== null ? generateHourlyForecast(auroraChance) : [];
 
-    fetch(`https://api.zippopotam.us/us/${zipCode}`)
-      .then(res => res.json())
-      .then(data => {
-        const place = data.places[0];
-        const lat = parseFloat(place.latitude);
-        const lon = parseFloat(place.longitude);
-        setLocation({ lat, lon });
-      
-        if (kpIndex !== null) {
-          const chance = getAuroraChance(lat, kpIndex);
-          setauroraChance(chance);
-        }
-      })
-      
-      .catch(() => alert('Could not retrieve location from ZIP code.'));
-  };
+  const chartData = forecastChances.map((value, index) => ({
+    value,
+    label: exampleHours[index],
+    frontColor: '#00ffcc',
+  }));
 
   return (
     <View style={styles.container}>
-      <Text style={styles.graphTitle}>Aurora Viewing Chance</Text>
-  
-      <Graph style={styles.graph} points={exampleChances.map((y, i) => ({ x: i, y }))}>
-  <Line color="#00ffcc" />
-  <Points color="#00ffcc" />
-</Graph>
+      <Text style={styles.graphTitle}>Aurora Viewing Forecast</Text>
+      {chartData.length === 0 ? (
+        <Text style={{ color: '#888', marginBottom: 20}}>
+          Determining your location...
+        </Text>
+     ) : (
+      <BarChart
+        barWidth={22}
+        noOfSections={5}
+        data={chartData}
+        height={220}
+        width={screenWidth - 40}
+        isAnimated
+        yAxisColor="#00ffcc"
+        xAxisColor="#00ffcc"
+        yAxisTextStyle={{ color: '#fff' }}
+        xAxisLabelTextStyle={{ color: '#fff', fontSize: 12 }}
+        stepValue={20}
+        spacing={18}
+        initialSpacing={10}
+        roundedTop
+        showGradient
+        backgroundColor="#000814"
+      />
+     )}
 
+      {location && (
+        <Text style={styles.location}>
+          📍 {location.lat}°, {location.lon}°
+        </Text>
+      )}
 
-
-  
-<Text style={styles.sliderValue}>
-  {exampleHours[selectedIndex]} — {exampleChances[selectedIndex]}%
-</Text>
-
-<Slider
-  style={{ width: screenWidth - 80, marginTop: 10 }}
-  minimumValue={0}
-  maximumValue={exampleChances.length - 1}
-  step={1}
-  minimumTrackTintColor="#00ffcc"
-  maximumTrackTintColor="#ffffff"
-  thumbTintColor="#00ffcc"
-  value={selectedIndex}
-  onValueChange={setSelectedIndex}
-/>
-
-
-
-
-
+      {auroraChance !== null && (
+        <Text style={styles.auroraChanceBox}>
+          Estimated Aurora Chance Now: {auroraChance}%
+        </Text>
+      )}
     </View>
   );
 }
@@ -121,16 +137,6 @@ const styles = StyleSheet.create({
     padding: 20,
     justifyContent: 'center',
     alignItems: 'center',
-  },
-  input: {
-    height: 40,
-    borderColor: '#00ffcc',
-    borderWidth: 1,
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    color: '#ffffff',
-    marginVertical: 20,
-    width: 200,
   },
   location: {
     color: '#ffffff',
@@ -147,21 +153,6 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: 'bold',
     color: '#00ffcc',
-    marginTop: 40,
-  },
-  sliderValue: {
-    fontSize: 16,
-    color: '#ffffff',
-    marginVertical: 10,
-  },
-  graph: {
-    width: screenWidth - 40,
-    height: 220,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: '#00ffcc',
-    backgroundColor: '#000814',
     marginBottom: 20,
   },
-  
 });
